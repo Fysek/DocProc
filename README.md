@@ -6,8 +6,10 @@ source myenv/bin/activate
 pip3 install openpyxl PyMuPDF
 
 python main.py check --path "C:\Firma\Pracownicy"
+python main.py check --path "C:\Baza" --hide-complete
 
 python main.py pack --path "C:\Firma\Pracownicy" workers.json
+python main.py pack --path "C:\Baza" workers.json --allow-incomplete
 
 python main.py excel --path "C:\Firma\Pracownicy"
 

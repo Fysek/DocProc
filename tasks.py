@@ -6,50 +6,68 @@ from datetime import datetime
 from pathlib import Path
 import openpyxl
 from core import Worker, REQUIRED_DOCS
-import fitz
 
 
 def get_workers(base_path: Path):
-    """Zwraca listę obiektów Worker z podanego folderu głównego."""
+    """Returns a list of Worker objects from the given base directory."""
     return [Worker(p) for p in base_path.iterdir() if p.is_dir()]
 
 
-def run_check(base_path: Path):
+def run_check(base_path: Path, hide_complete: bool = False):
+    """Validates document completeness, archives old files, and standardizes filenames."""
     workers = get_workers(base_path)
+
+    # Define the archive directory path
+    archive_dir = base_path / "_archive"
+
     for w in workers:
+        safe_name = w.name.title().replace(" ", "_")
+
+        # 1. Archive obsolete documents first
+        if w.obsolete_docs:
+            archive_dir.mkdir(
+                exist_ok=True
+            )  # Create _archive folder if it doesn't exist
+
+            for old_file in w.obsolete_docs:
+                # Add timestamp to avoid filename collisions in the shared archive
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                archived_name = f"{safe_name}_{timestamp}_{old_file.name}"
+                new_path = archive_dir / archived_name
+
+                old_file.rename(new_path)
+                print(
+                    f"    [A] Zarchiwizowano starszy dokument: {old_file.name} -> _archive/{archived_name}"
+                )
+
+        # 2. Print status
         if w.is_complete:
-            print(f"[✓] {w.name} - Komplet")
+            if not hide_complete:
+                print(f"[✓] {w.name} - Komplet")
         else:
             missing = ", ".join(w.missing_docs)
             print(f"[x] {w.name} - Braki: {missing}")
 
-        # Standaryzacja nazw (jeśli plik nie nazywa się poprawnie, zmieniamy to)
-        safe_name = w.name.replace(" ", "_")
+        # 3. Standardize filenames of the valid documents
         for doc_type, file_path in w.documents.items():
-            ext = file_path.suffix  # rozszerzenie np. .pdf
-            expected_name = f"{safe_name}_{doc_type}{ext}"
+            ext = file_path.suffix.lower()
+            doc_type_clean = doc_type.lower()
+            expected_name = f"{safe_name}_{doc_type_clean}{ext}"
 
             if file_path.name != expected_name:
                 new_path = file_path.with_name(expected_name)
                 file_path.rename(new_path)
-                w.documents[doc_type] = (
-                    new_path  # aktualizacja ścieżki po zmianie nazwy
-                )
+                w.documents[doc_type] = new_path
 
 
-def run_pack(base_path: Path, json_path: Path):
+def run_pack(base_path: Path, json_path: Path, allow_incomplete: bool = False):
     with open(json_path, "r", encoding="utf-8") as f:
         target_names = json.load(f)
 
     workers_dict = {w.name: w for w in get_workers(base_path)}
-
-    # Generowanie daty i czasu w formacie DD_MM_YYYY_HH_MM
     now_str = datetime.now().strftime("%d_%m_%Y_%H_%M")
-
-    # Nazwa głównego pliku ZIP z datą
     master_zip_name = f"paczka_pracownicy_{now_str}.zip"
 
-    # Flaga, czy udało się dodać kogokolwiek do paczki
     added_any = False
 
     with zipfile.ZipFile(master_zip_name, "w") as zf:
@@ -59,18 +77,25 @@ def run_pack(base_path: Path, json_path: Path):
                 continue
 
             w = workers_dict[name]
-            if not w.is_complete:
+
+            # Jeśli pracownik ma braki i NIE użyliśmy flagi pozwalającej na pakowanie z brakami
+            if not w.is_complete and not allow_incomplete:
                 print(f"[x] {w.name} - Pominięto, braki: {', '.join(w.missing_docs)}")
                 continue
 
-            # Dodajemy dokumenty pracownika, umieszczając je w podfolderze (wewnątrz ZIPa)
             safe_folder_name = name.replace(" ", "_")
             for doc_path in w.documents.values():
-                # Ścieżka docelowa w archiwum: np. Jan_Kowalski/Jan_Kowalski_dowod.pdf
                 arcname = f"{safe_folder_name}/{doc_path.name}"
                 zf.write(doc_path, arcname)
 
-            print(f"[+] Dodano do paczki: {w.name}")
+            # Zmieniamy komunikat, jeśli pakujemy osobę z brakami
+            if w.is_complete:
+                print(f"[+] Dodano do paczki (komplet): {w.name}")
+            else:
+                print(
+                    f"[~] Dodano do paczki (CZĘŚCIOWO): {w.name} (Brakuje: {', '.join(w.missing_docs)})"
+                )
+
             added_any = True
 
     if added_any:
@@ -79,7 +104,7 @@ def run_pack(base_path: Path, json_path: Path):
         print(
             f"\n[!] Paczka nie została utworzona (brak spełniających warunki pracowników)."
         )
-        Path(master_zip_name).unlink(missing_ok=True)  # Usuń pusty ZIP, jeśli powstał
+        Path(master_zip_name).unlink(missing_ok=True)
 
 
 def run_excel(base_path: Path):
