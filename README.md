@@ -1,5 +1,18 @@
 # DocProc
 
+
+python3 -m venv myenv
+source myenv/bin/activate
+pip3 install openpyxl PyMuPDF
+
+python main.py check --path "C:\Firma\Pracownicy"
+
+python main.py pack --path "C:\Firma\Pracownicy" workers.json
+
+python main.py excel --path "C:\Firma\Pracownicy"
+
+python main.py compress --path "C:\Firma\Pracownicy"
+
 Employee Document Manager CLI
 A powerful, modular Command Line Interface (CLI) application built in Python to automate and manage employee documentation. It validates file completeness, standardizes naming conventions, generates ZIP packages, and exports status reports to Excel.
 
