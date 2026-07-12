@@ -1,16 +1,27 @@
 import json
-import zipfile
-import subprocess
+import re
 import shutil
-from datetime import datetime
+import subprocess
+import zipfile
+from datetime import datetime, timedelta
 from pathlib import Path
+
 import openpyxl
-from core import Worker, REQUIRED_DOCS
+import pytesseract
+from pdf2image import convert_from_path
+from PIL import Image
+
+from core import REQUIRED_DOCS, Worker
 
 
 def get_workers(base_path: Path):
     """Returns a list of Worker objects from the given base directory."""
-    return [Worker(p) for p in base_path.iterdir() if p.is_dir()]
+    workers = []
+    for p in base_path.iterdir():
+        # no _archive
+        if p.is_dir() and p.name != "_archive" and not p.name.startswith("."):
+            workers.append(Worker(p))
+    return workers
 
 
 def run_check(base_path: Path, hide_complete: bool = False):
@@ -108,27 +119,31 @@ def run_pack(base_path: Path, json_path: Path, allow_incomplete: bool = False):
 
 
 def run_excel(base_path: Path):
+    """Generates an Excel report with document statuses and extracted dates."""
     workers = get_workers(base_path)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Status Dokumentów"
 
-    # Nagłówki
     headers = ["Imię i Nazwisko"] + [d.upper() for d in REQUIRED_DOCS]
     ws.append(headers)
-
-    # Szkielet funkcji do czytania daty (na razie zwraca stałą wartość)
-    def extract_date(doc_path):
-        return "2025-12-31"  # ZAŚLEPKA NA PRZYSZŁOŚĆ
 
     for w in workers:
         row = [w.name]
         for doc_type in REQUIRED_DOCS:
             if doc_type in w.documents:
+                file_path = w.documents[doc_type]
+
                 if doc_type == "foto":
                     row.append("Tak")
+                elif doc_type == "bhp":
+                    # Run OCR for BHP document
+                    print(f"[*] Skanowanie daty BHP dla: {w.name}...")
+                    date_val = extract_bhp_date(file_path)
+                    print(date_val)
+                    row.append(date_val)
                 else:
-                    row.append(extract_date(w.documents[doc_type]))
+                    row.append("Wymaga integracji OCR")  # Placeholder for other docs
             else:
                 row.append("Brak")
         ws.append(row)
@@ -206,3 +221,72 @@ def run_compress(base_path: Path):
                         )
                         if temp_path.exists():
                             temp_path.unlink()
+
+
+def extract_bhp_date(file_path: Path):
+    """
+    Extracts the training completion date via OCR, filters out dates before 2024
+    (e.g., old laws), picks the latest valid date, and calculates expiration (+1 years).
+    """
+    try:
+        # Load document depending on its extension
+        if file_path.suffix.lower() == ".pdf":
+            images = convert_from_path(file_path)
+            text = pytesseract.image_to_string(images[0], lang="pol")
+        else:
+            text = pytesseract.image_to_string(Image.open(file_path), lang="pol")
+
+        text_lower = text.lower()
+        dates_found = []
+
+        # Pattern 1: All dates in DD.MM.YYYY or DD-MM-YYYY format
+        for match in re.finditer(r"(\d{2})[\.\-](\d{2})[\.\-](\d{4})", text_lower):
+            day, month, year = match.groups()
+            dates_found.append((int(year), int(month), int(day)))
+
+        # Pattern 2: All textual dates (e.g., 28 stycznia 2026)
+        months = {
+            "stycznia": 1,
+            "lutego": 2,
+            "marca": 3,
+            "kwietnia": 4,
+            "maja": 5,
+            "czerwca": 6,
+            "lipca": 7,
+            "sierpnia": 8,
+            "września": 9,
+            "października": 10,
+            "listopada": 11,
+            "grudnia": 12,
+        }
+        for match in re.finditer(
+            r"(\d{1,2})\s+([a-ząćęłńóśźż]+)\s+(\d{4})", text_lower
+        ):
+            day, month_str, year = match.groups()
+            if month_str in months:
+                dates_found.append((int(year), months[month_str], int(day)))
+
+        # Filter and validate dates
+        valid_dates = []
+        for y, m, d in dates_found:
+            # Ignore anything before 2024 to bypass old laws/regulations
+            if y >= 2024:
+                try:
+                    # Validate if it's a real calendar date (e.g., catching 31.02.2025 errors)
+                    valid_dates.append(datetime(y, m, d))
+                except ValueError:
+                    pass
+
+        if valid_dates:
+            # Pick the most recent date found in the document
+            completion_date = max(valid_dates)
+
+            # Add 1 years for validity
+            expiration_date = completion_date + timedelta(days=1 * 365)
+            return expiration_date.strftime("%Y-%m-%d")
+        else:
+            return "Brak daty > 2023"
+
+    except Exception as e:
+        print(f"    [!] Błąd OCR dla pliku {file_path.name}: {e}")
+        return "Błąd odczytu"
