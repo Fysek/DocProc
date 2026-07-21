@@ -7,15 +7,20 @@ source myenv/bin/activate
 pip3 install openpyxl PyMuPDF
 pip3 install pytesseract pdf2image
 
-python main.py check --path /mnt/c/workers/
-python main.py check --path /mnt/c/workers/ --hide-complete
+python3 main.py check --path /mnt/c/workers/
+python3 main.py check --path /mnt/c/workers/ --hide-complete
 
-python main.py pack --path /mnt/c/workers/ workers.json
-python main.py pack --path /mnt/c/workers/ workers.json --allow-incomplete
+python3 main.py pack --path /mnt/c/workers/ workers.json
+python3 main.py pack --path /mnt/c/workers/ workers.json --allow-incomplete
 
-python main.py excel --path /mnt/c/workers/
+python3 main.py excel --path /mnt/c/workers/
 
-python main.py compress --path /mnt/c/workers/
+python3 main.py compress --path /mnt/c/workers/
+
+python3 main.py updatedb --path  /mnt/c/workers/
+
+python3 main.py updatedb --path  /mnt/c/workers/ --force
+python3 main.py excel-db
 
 Employee Document Manager CLI
 A powerful, modular Command Line Interface (CLI) application built in Python to automate and manage employee documentation. It validates file completeness, standardizes naming conventions, generates ZIP packages, and exports status reports to Excel.

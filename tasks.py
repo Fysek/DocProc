@@ -290,3 +290,92 @@ def extract_bhp_date(file_path: Path):
     except Exception as e:
         print(f"    [!] Błąd OCR dla pliku {file_path.name}: {e}")
         return "Błąd odczytu"
+
+
+def run_update_db(base_path: Path, db_path: Path, force: bool = False):
+    """Skanuje dokumenty i aktualizuje plik JSON (bazę danych)."""
+    db_data = {}
+
+    # 1. Ładowanie istniejącej bazy, jeśli istnieje (żeby nie nadpisywać ręcznych zmian)
+    if db_path.exists():
+        with open(db_path, "r", encoding="utf-8") as f:
+            try:
+                db_data = json.load(f)
+            except json.JSONDecodeError:
+                print(f"[!] Błąd odczytu {db_path.name}. Tworzę nową bazę.")
+                db_data = {}
+
+    workers = get_workers(base_path)
+
+    for w in workers:
+        # Jeśli pracownika nie ma w bazie, tworzymy dla niego pusty wpis
+        if w.name not in db_data:
+            db_data[w.name] = {doc: "Brak" for doc in REQUIRED_DOCS}
+
+        print(f"[*] Aktualizacja danych dla: {w.name}")
+
+        for doc_type in REQUIRED_DOCS:
+            if doc_type in w.documents:
+                file_path = w.documents[doc_type]
+                current_val = db_data[w.name].get(doc_type, "Brak")
+
+                if doc_type == "foto":
+                    db_data[w.name][doc_type] = "Tak"
+                elif doc_type == "bhp":
+                    # Uruchamiamy OCR tylko gdy wymuszono flagą --force,
+                    # albo gdy w bazie nie ma jeszcze poprawnej daty
+                    if force or current_val in [
+                        "Brak",
+                        "Błąd odczytu",
+                        "Brak daty > 2023",
+                        "Wymaga integracji OCR",
+                    ]:
+                        print(f"    - Skanowanie daty BHP...")
+                        date_val = extract_bhp_date(file_path)
+                        db_data[w.name][doc_type] = date_val
+                    else:
+                        print(f"    - BHP: zachowano istniejącą datę ({current_val})")
+                else:
+                    # Inne dokumenty, dla których na razie nie mamy OCR
+                    # Aktualizujemy status, chyba że ktoś wpisał datę ręcznie
+                    if current_val in ["Brak", "Wymaga integracji OCR"]:
+                        db_data[w.name][doc_type] = "Obecny (Wymaga OCR)"
+            else:
+                db_data[w.name][doc_type] = "Brak"
+
+    # Zapis do pliku JSON
+    with open(db_path, "w", encoding="utf-8") as f:
+        json.dump(db_data, f, ensure_ascii=False, indent=4)
+
+    print(f"\n[✓] Gotowe! Zaktualizowano bazę danych: {db_path.name}")
+
+
+def run_excel_from_db(db_path: Path):
+    """Generuje raport Excel na podstawie danych zapisanych w pliku JSON."""
+    if not db_path.exists():
+        print(
+            f"[!] Błąd: Baza danych '{db_path}' nie istnieje. Uruchom najpierw komendę 'updatedb'."
+        )
+        return
+
+    with open(db_path, "r", encoding="utf-8") as f:
+        db_data = json.load(f)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Status Dokumentów"
+
+    # Nagłówki
+    headers = ["Imię i Nazwisko"] + [d.upper() for d in REQUIRED_DOCS]
+    ws.append(headers)
+
+    # Zrzucanie danych z JSONa do Excela
+    for worker_name, docs in db_data.items():
+        row = [worker_name]
+        for doc_type in REQUIRED_DOCS:
+            row.append(docs.get(doc_type, "Brak"))
+        ws.append(row)
+
+    output_file = "raport_z_bazy.xlsx"
+    wb.save(output_file)
+    print(f"[✓] Wygenerowano raport Excel na podstawie bazy JSON: {output_file}")
