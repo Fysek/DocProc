@@ -156,8 +156,8 @@ def run_excel(base_path: Path):
 def run_compress(base_path: Path):
     # Sprawdzamy, czy Ghostscript jest zainstalowany w systemie
     if not shutil.which("gs"):
-        print("[!] Błąd: Nie znaleziono programu Ghostscript.")
-        print("    Zainstaluj go komendą: sudo apt install ghostscript")
+        print("[!] Error: Cannot find Ghostscript.")
+        print("    Install with: sudo apt install ghostscript")
         return
 
     workers = get_workers(base_path)
@@ -168,7 +168,7 @@ def run_compress(base_path: Path):
 
                 if size_mb > 1.0:
                     print(
-                        f"[*] Kompresja: {file_path.name} ({size_mb:.2f} MB) w folderze: {w.name}"
+                        f"[*] Compressing: {file_path.name} ({size_mb:.2f} MB) in folder: {w.name}"
                     )
                     temp_path = file_path.with_name(f"temp_{file_path.name}")
 
@@ -197,10 +197,8 @@ def run_compress(base_path: Path):
                     ]
 
                     try:
-                        # Uruchamiamy proces kompresji
                         subprocess.run(gs_cmd, check=True)
 
-                        # Sprawdzamy nowy rozmiar
                         new_size_mb = temp_path.stat().st_size / (1024 * 1024)
 
                         if new_size_mb < size_mb:
@@ -210,14 +208,14 @@ def run_compress(base_path: Path):
                                 f"    [✓] Sukces! Zmniejszono do {new_size_mb:.2f} MB (zaoszczędzono {zaoszczedzono:.2f} MB)"
                             )
                         else:
-                            temp_path.unlink()  # usuwamy plik tymczasowy
+                            temp_path.unlink()
                             print(
                                 "    [-] Plik jest już optymalnie skompresowany, pomijam."
                             )
 
                     except subprocess.CalledProcessError as e:
                         print(
-                            f"    [!] Błąd podczas kompresji pliku {file_path.name}: {e}"
+                            f"    [!] Error podczas kompresji pliku {file_path.name}: {e}"
                         )
                         if temp_path.exists():
                             temp_path.unlink()
@@ -285,11 +283,11 @@ def extract_bhp_date(file_path: Path):
             expiration_date = completion_date + timedelta(days=1 * 365)
             return expiration_date.strftime("%Y-%m-%d")
         else:
-            return "Brak daty > 2023"
+            return "No data > 2023"
 
     except Exception as e:
-        print(f"    [!] Błąd OCR dla pliku {file_path.name}: {e}")
-        return "Błąd odczytu"
+        print(f"    [!] Error OCR dla pliku {file_path.name}: {e}")
+        return "Error odczytu"
 
 
 def run_update_db(base_path: Path, db_path: Path, force: bool = False):
@@ -302,7 +300,7 @@ def run_update_db(base_path: Path, db_path: Path, force: bool = False):
             try:
                 db_data = json.load(f)
             except json.JSONDecodeError:
-                print(f"[!] Błąd odczytu {db_path.name}. Tworzę nową bazę.")
+                print(f"[!] Error odczytu {db_path.name}. Tworzę nową bazę.")
                 db_data = {}
 
     workers = get_workers(base_path)
@@ -326,7 +324,7 @@ def run_update_db(base_path: Path, db_path: Path, force: bool = False):
                     # albo gdy w bazie nie ma jeszcze poprawnej daty
                     if force or current_val in [
                         "Brak",
-                        "Błąd odczytu",
+                        "Error odczytu",
                         "Brak daty > 2023",
                         "Wymaga integracji OCR",
                     ]:
@@ -354,7 +352,7 @@ def run_excel_from_db(db_path: Path):
     """Generuje raport Excel na podstawie danych zapisanych w pliku JSON."""
     if not db_path.exists():
         print(
-            f"[!] Błąd: Baza danych '{db_path}' nie istnieje. Uruchom najpierw komendę 'updatedb'."
+            f"[!] Error: Baza danych '{db_path}' nie istnieje. Uruchom najpierw komendę 'updatedb'."
         )
         return
 
@@ -378,4 +376,4 @@ def run_excel_from_db(db_path: Path):
 
     output_file = "raport_z_bazy.xlsx"
     wb.save(output_file)
-    print(f"[✓] Wygenerowano raport Excel na podstawie bazy JSON: {output_file}")
+    print(f"[✓] Generated Excel file based on database JSON: {output_file}")
