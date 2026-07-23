@@ -290,6 +290,43 @@ def extract_bhp_date(file_path: Path):
         return "Error odczytu"
 
 
+def extract_g2e_date(file_path: Path):
+    """
+    Extracts the expiration date from a G2E qualification certificate using OCR.
+    Searches for the specific phrase 'ważne do dnia' and captures the subsequent YYYY-MM-DD date.
+    """
+    try:
+        # 1. Load document depending on its extension
+        if file_path.suffix.lower() == ".pdf":
+            images = convert_from_path(file_path)
+            text = pytesseract.image_to_string(images[0], lang="pol")
+        else:
+            text = pytesseract.image_to_string(Image.open(file_path), lang="pol")
+
+        # Convert text to lowercase to make regex matching case-insensitive
+        text_lower = text.lower()
+
+        # 2. Extract the specific expiration date
+        # The Regex pattern looks for "ważne do dnia" (valid until), allows for newlines or spaces ([\s\S]*?),
+        # and captures the first date in YYYY-MM-DD or YYYY.MM.DD format.
+        # We use wa[zż]ne to account for potential OCR typos missing the Polish 'ż'.
+        match = re.search(
+            r"wa[zż]ne do dnia[\s\S]*?(\d{4}[-.]\d{2}[-.]\d{2})", text_lower
+        )
+
+        if match:
+            raw_date = match.group(1)
+            # Normalize dots to hyphens just in case OCR read 2031.06.17 instead of 2031-06-17
+            expiration_date = raw_date.replace(".", "-")
+            return expiration_date
+        else:
+            return "Brak daty ważności"
+
+    except Exception as e:
+        print(f"[!] OCR Error for file {file_path.name}: {e}")
+        return "Błąd odczytu"
+
+
 def run_update_db(base_path: Path, db_path: Path, force: bool = False):
     """Skanuje dokumenty i aktualizuje plik JSON (bazę danych)."""
     db_data = {}
@@ -333,6 +370,18 @@ def run_update_db(base_path: Path, db_path: Path, force: bool = False):
                         db_data[w.name][doc_type] = date_val
                     else:
                         print(f"    - BHP: zachowano istniejącą datę ({current_val})")
+                elif doc_type == "g2e":
+                    # NEW BLOCK FOR G2E OCR
+                    if force or current_val in [
+                        "Brak",
+                        "Błąd odczytu",
+                        "Brak daty ważności",
+                        "Wymaga integracji OCR",
+                    ]:
+                        print(f"    - Skanowanie daty G2E...")
+                        db_data[w.name][doc_type] = extract_g2e_date(file_path)
+                    else:
+                        print(f"    - G2E: zachowano istniejącą datę ({current_val})")
                 else:
                     # Inne dokumenty, dla których na razie nie mamy OCR
                     # Aktualizujemy status, chyba że ktoś wpisał datę ręcznie
